@@ -1,0 +1,35 @@
+name: cdna4 full emulator suite
+on:
+  workflow_dispatch:
+jobs:
+  full:
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [amd, amdllvm]
+        arch: [gfx950, gfx1100]
+    name: full (${{ matrix.backend }} ${{ matrix.arch }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      DEV: MOCKKFD+AMD:${{ matrix.backend == 'amdllvm' && 'LLVM' || '' }}:${{ matrix.arch }}
+      SKIP_SLOW_TEST: 1
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-tinygrad
+        with:
+          key: ${{ matrix.backend }}-minimal
+          deps: testing_unit
+          amd: 'true'
+          llvm: 'true'
+      - name: full suite
+        continue-on-error: true
+        run: python -m pytest -n=auto test/runtime test/device/amd -q -rfEs -p no:cacheprovider --junitxml=report.xml 2>&1 | tee out.txt; exit ${PIPESTATUS[0]}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: report-${{ matrix.backend }}-${{ matrix.arch }}
+          path: |
+            report.xml
+            out.txt
