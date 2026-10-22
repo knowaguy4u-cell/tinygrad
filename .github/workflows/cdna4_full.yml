@@ -2,15 +2,15 @@ name: cdna4 full emulator suite
 on:
   workflow_dispatch:
 jobs:
-  full:
+  diag:
     strategy:
       fail-fast: false
       matrix:
         backend: [amd, amdllvm]
-        arch: [gfx950, gfx1100]
-    name: full (${{ matrix.backend }} ${{ matrix.arch }})
+        arch: [gfx950]
+    name: diag (${{ matrix.backend }} ${{ matrix.arch }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 40
     env:
       DEV: MOCKKFD+AMD:${{ matrix.backend == 'amdllvm' && 'LLVM' || '' }}:${{ matrix.arch }}
       SKIP_SLOW_TEST: 1
@@ -23,21 +23,16 @@ jobs:
           deps: testing_unit
           amd: 'true'
           llvm: 'true'
-      - name: full suite
+      - name: eye
         continue-on-error: true
-        run: python -X faulthandler -m pytest -n=auto test/runtime test/device/amd -q -rfEs -p no:cacheprovider --junitxml=report.xml 2>&1 | tee out.txt; exit ${PIPESTATUS[0]}
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: report-${{ matrix.backend }}-${{ matrix.arch }}
-          path: |
-            report.xml
-            out.txt
+        shell: bash
+        run: |
+          echo "ulimit -s: $(ulimit -s)" > eye.txt
+          PYTHONFAULTHANDLER=1 python -m pytest -n 1 -v -p no:cacheprovider test/runtime/test_arange.py::TestArange::test_eye_complexity >> eye.txt 2>&1; echo "rc=$?" >> eye.txt
+          python -c "import sys,threading; print('reclimit', sys.getrecursionlimit()); import tinygrad; print('reclimit after tinygrad', sys.getrecursionlimit()); print('thread stack', threading.stack_size())" >> eye.txt 2>&1
       - name: summary
         if: always()
         shell: bash
         run: |
           enc() { sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g'; }
-          echo "::error title=results::$(grep -E "^(FAILED|ERROR) |[0-9]+ (passed|failed)|worker .* crashed|_ (Test|test)" out.txt | cut -c1-300 | tail -n 40 | enc)"
-          echo "::error title=crash::$(grep -n -A45 -E "Fatal Python error|Segmentation|Illegal|replacing crashed worker" out.txt | cut -c1-200 | head -n 120 | enc)"
-          echo "::error title=asserts::$(grep -n -B3 -A25 "test_simple_unroll_no_between_phi" out.txt | grep -v PASSED | cut -c1-200 | head -n 80 | enc)"
+          echo "::error title=eye::$(grep -v '^\s*$' eye.txt | cut -c1-220 | head -n 150 | enc)"
