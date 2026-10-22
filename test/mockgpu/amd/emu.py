@@ -1553,7 +1553,7 @@ def _compile_mem_op(inst: ir3.DS|ir3.FLAT|ir3.GLOBAL|ir3.SCRATCH|ir4.DS|ir4.VFLA
                     |irc.DS|irc.FLAT|irc.GLOBAL|irc.SCRATCH, ctx: _Ctx) -> UOp:
   """Unified memory operation compiler for DS, FLAT, GLOBAL, SCRATCH."""
   exec_mask, op_name = ctx.rexec(), _op_name(inst)
-  if op_name == 'DS_READ_B64_TR_B16': return _compile_ds_read_tr_b16(inst, ctx)
+  if op_name == 'DS_READ_B64_TR_B16' and isinstance(inst, irc.DS): return _compile_ds_read_tr_b16(inst, ctx)
   pcode = get_pcode(inst.op)
   # CDNA and RDNA4 FLAT/SCRATCH pcode compute addresses from raw components, but make_addr already handles this.
   # Strip the addr computation line and use pre-computed ADDR directly (rename 'addr' -> 'ADDR' in remaining pcode).
