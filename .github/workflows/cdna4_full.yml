@@ -26,6 +26,21 @@ jobs:
       - name: full suite
         continue-on-error: true
         run: python -m pytest -n=auto test/runtime test/device/amd test/amd/hw/test_cdna_ds.py -q -rfEs -p no:cacheprovider --junitxml=report.xml 2>&1 | tee out.txt; exit ${PIPESTATUS[0]}
+      - name: publish results
+        if: always()
+        run: |
+          python - <<'EOF'
+          import os, xml.etree.ElementTree as ET
+          lines = []
+          if os.path.exists('report.xml'):
+            for tc in ET.parse('report.xml').getroot().iter('testcase'):
+              st = next((c.tag for c in tc if c.tag in ('failure', 'error', 'skipped')), 'passed')
+              name = f"{tc.get('classname')}::{tc.get('name')}"
+              if 'TestCDNADSReadTr' in name or st in ('failure', 'error'): lines.append(f"{st} {name}")
+          out = open('out.txt').read().strip().splitlines() if os.path.exists('out.txt') else ['no out.txt']
+          lines += [l[:200] for l in out if 'crashed' in l or 'Fatal Python' in l][:20]
+          print('::notice title=pytest::' + '%0A'.join([out[-1]] + lines))
+          EOF
       - uses: actions/upload-artifact@v4
         if: always()
         with:
