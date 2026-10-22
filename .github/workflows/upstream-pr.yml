@@ -5,15 +5,19 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: "check | comment | reopen | close"
+        description: "check | comment | reopen | close | create"
         required: true
         default: check
       pr:
         description: "PR number on tinygrad/tinygrad"
         required: false
         default: ""
+      title:
+        description: "PR title (for create; pr = fork branch)"
+        required: false
+        default: ""
       body:
-        description: "Comment text (for comment)"
+        description: "Comment or PR body"
         required: false
         default: ""
 permissions: {}
@@ -25,6 +29,7 @@ jobs:
       ACTION: ${{ inputs.action }}
       PR: ${{ inputs.pr }}
       BODY: ${{ inputs.body }}
+      TITLE: ${{ inputs.title }}
       REPO: tinygrad/tinygrad
     steps:
       - name: Run
@@ -41,5 +46,9 @@ jobs:
               printf '%s' "$BODY" | gh pr comment "$PR" -R "$REPO" --body-file - ;;
             reopen) gh pr reopen "$PR" -R "$REPO" ;;
             close) gh pr close "$PR" -R "$REPO" ;;
+            create)
+              [ -n "$PR" ] && [ -n "$TITLE" ] || { echo "need pr (branch) and title"; exit 1; }
+              url=$(printf '%s' "$BODY" | gh pr create -R "$REPO" --base master --head "knowaguy4u-cell:$PR" --title "$TITLE" --body-file -)
+              echo "::notice::Opened $url" ;;
             *) echo "unknown action $ACTION"; exit 1 ;;
           esac
