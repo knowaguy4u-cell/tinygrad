@@ -1,0 +1,40 @@
+name: asm GEMM in emulator (gfx950)
+on:
+  workflow_dispatch:
+    inputs:
+      tests:
+        description: "pytest targets"
+        required: false
+        default: "test/device/amd/test_asm_gemm.py"
+permissions:
+  contents: read
+jobs:
+  asmgemm:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      DEV: MOCKKFD+AMD::gfx950
+      PYTHONPATH: .
+      ROCM_PATH: /opt/rocm
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup Environment
+        uses: ./.github/actions/setup-tinygrad
+        with:
+          key: amd-minimal
+          deps: testing_unit
+          amd: 'true'
+          llvm: 'true'
+      - name: Install hipcc
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends hipcc hip-dev rocm-llvm rocm-device-libs rocm-core
+          echo "/opt/rocm/bin" >> $GITHUB_PATH
+      - name: hipcc version
+        run: hipcc --version
+      - name: Run asm GEMM tests in the emulator
+        shell: bash
+        run: python -m pytest -v -rs --durations=20 ${{ inputs.tests }} 2>&1 | tee pytest.log
+      - name: Summary
+        if: always()
+        run: grep -E "PASSED|FAILED|SKIPPED|ERROR|passed|failed" pytest.log | tail -40 | sed 's/^/::notice::/' || true
