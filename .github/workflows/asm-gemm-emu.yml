@@ -41,5 +41,5 @@ jobs:
         if: always()
         shell: bash
         run: |
-          msg=$(grep -E "PASSED|FAILED|ERROR|SKIPPED|Fatal Python|passed|failed" pytest.log | cut -c1-200 | tail -n 60 | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')
+          msg=$(grep -E "PASSED|FAILED|ERROR|Fatal Python|[0-9]+ passed" pytest.log | grep -v "^SKIPPED" | sed "s#test/device/amd/test_asm_gemm.py::##" | cut -c1-120 | tail -n 80 | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')
           echo "::error title=results::$msg"
