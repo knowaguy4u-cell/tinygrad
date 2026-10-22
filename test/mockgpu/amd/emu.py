@@ -2012,6 +2012,24 @@ def run_asm(lib: int, lib_sz: int, gx: int, gy: int, gz: int, lx: int, ly: int, 
   if PROFILE:
     sqtt_emit, sqtt_finish, sqtt_finalize = _make_sqtt_encoder()
 
+  # CDNA: a DS load writes its VGPRs when the data returns, so a later instruction issued before s_waitcnt lgkmcnt still reads the
+  # old value (hand written kernels reuse the destination of one ds_read as the address of the next). pc -> (buffer idx, byte offset, nbytes)
+  ds_defer: dict[int, tuple[int, int, int]|None] = {}
+  def _ds_defer(pc: int, inst: Inst) -> tuple[int, int, int]|None:
+    if pc not in ds_defer:
+      ds_defer[pc] = None
+      if arch == "cdna" and isinstance(inst, irc.DS) and (n:=inst.op_regs.get('vdst')) is not None:
+        ds_defer[pc] = (5 if _iattr(inst, 'acc') else 1, (inst.vdst.offset - 256) * wave_size * 4, n * wave_size * 4)
+    return ds_defer[pc]
+  def _lgkm_wait(inst: Inst) -> int|None:
+    if arch != "cdna" or not isinstance(inst, irc.SOPP): return None
+    if inst.op is irc.SOPPOp.S_WAITCNT: return (inst.simm16 >> 8) & 0xF
+    return 0 if inst.op in _BARRIER_OPS else None
+  def _commit(pending: list[tuple[int, bytes]], keep: int = 0):
+    while len(pending) > keep:
+      addr, data = pending.pop(0)
+      ctypes.memmove(addr, data, len(data))
+
   def _ensure_compiled(pc: int) -> tuple[Callable, list[int], bool, Inst]:
     if pc not in program:
       prev_len = len(_canonical_runner_cache)
@@ -2033,6 +2051,7 @@ def run_asm(lib: int, lib_sz: int, gx: int, gy: int, gz: int, lx: int, ly: int, 
       scratch_base = scratch_buf._buf + (wave_start // wave_size) * scratch_size * wave_size if scratch_buf else 0
       waves.append((st, [st.sgpr_buf._buf, st.vgpr_buf._buf, vmem_buf._buf, lds_buf._buf, scratch_base if scratch_buf else 0, st.accvgpr_buf._buf]))
     done = [False] * len(waves)
+    pending: list[list[tuple[int, bytes]]] = [[] for _ in waves]  # DS load results not yet written back, oldest first
     for _ in range(10_000_000):
       if all(done): return
       for wi, (st, c_bufs) in enumerate(waves):
@@ -2041,12 +2060,20 @@ def run_asm(lib: int, lib_sz: int, gx: int, gy: int, gz: int, lx: int, ly: int, 
         for _ in range(1_000_000):
           pc = st.pc
           if pc == ENDPGM_PC:
+            _commit(pending[wi])
             done[wi] = True
             if tracing: sqtt_finish(wi)
             break
           fxn, globals_list, is_barrier, inst = _ensure_compiled(pc)
           if DEBUG >= 5: print(f"  exec gid=({gidx},{gidy},{gidz}) w={wi} PC={pc - lib}: {inst!r}", flush=True)
+          if (keep:=_lgkm_wait(inst)) is not None: _commit(pending[wi], keep)
+          if (dfr:=_ds_defer(pc, inst)) is not None:
+            daddr = c_bufs[dfr[0]] + dfr[1]
+            before = ctypes.string_at(daddr, dfr[2])
           fxn((ctypes.c_uint64 * len(globals_list))(*[c_bufs[g] for g in globals_list]))
+          if dfr is not None:
+            pending[wi].append((daddr, ctypes.string_at(daddr, dfr[2])))
+            ctypes.memmove(daddr, before, dfr[2])
           if tracing:
             inst_op = inst.op.value if hasattr(inst, 'op') else 0
             sqtt_emit(wi, inst, (st.pc != ENDPGM_PC and st.pc != pc + inst.size()) if inst_op in _BRANCH_OPS else None)
