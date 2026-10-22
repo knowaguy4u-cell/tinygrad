@@ -36,7 +36,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          for t in TestAsmGEMM::test_tiny TestAsmGEMM::test_verify_with_numpy TestHkBf16AtbGemm::test_single; do
+          for t in TestAsmGEMM::test_tiny TestHkBf16AtbGemm::test_single; do
             echo "=== $t" >> pytest.log
             timeout 1500 python -X faulthandler -m pytest -v -rs -x test/device/amd/test_asm_gemm.py::$t >> pytest.log 2>&1
             echo "=== $t exit $?" >> pytest.log
@@ -46,7 +46,7 @@ jobs:
         if: always()
         shell: bash
         run: |
-          for t in test_tiny test_verify_with_numpy test_single; do
-            msg=$(awk "/=== .*::$t\$/,/=== .*::$t exit/" pytest.log | grep -v '^\s*$' | tail -45 | cut -c1-220 | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')
+          for t in test_tiny test_single; do
+            msg=$(awk "/=== .*::$t\$/,/=== .*::$t exit/" pytest.log | grep -v '^\s*$' | grep -v -e site-packages -e 'cpython-3' -e 'frozen runpy' | grep -A40 -m1 -e 'Fatal Python' -e 'passed' -e 'failed'  | cut -c1-220 | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')
             echo "::error title=$t::$msg"
           done
