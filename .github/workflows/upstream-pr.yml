@@ -1,0 +1,45 @@
+name: Upstream PR action
+# Lets Hark act on tinygrad/tinygrad PRs as knowaguy4u-cell.
+# Needs a repo secret UPSTREAM_PAT: classic token with public_repo scope.
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "check | comment | reopen | close"
+        required: true
+        default: check
+      pr:
+        description: "PR number on tinygrad/tinygrad"
+        required: false
+        default: ""
+      body:
+        description: "Comment text (for comment)"
+        required: false
+        default: ""
+permissions: {}
+jobs:
+  act:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.UPSTREAM_PAT }}
+      ACTION: ${{ inputs.action }}
+      PR: ${{ inputs.pr }}
+      BODY: ${{ inputs.body }}
+      REPO: tinygrad/tinygrad
+    steps:
+      - name: Run
+        run: |
+          set -euo pipefail
+          if [ -z "$GH_TOKEN" ]; then echo "UPSTREAM_PAT secret is missing"; exit 1; fi
+          echo "Signed in as: $(gh api user --jq .login)"
+          gh api -i user 2>/dev/null | grep -i '^x-oauth-scopes' || echo "fine-grained token (no scope header)"
+          case "$ACTION" in
+            check)
+              if [ -n "$PR" ]; then gh pr view "$PR" -R "$REPO" --json state,headRefOid,comments --jq '{state, head: .headRefOid, comments: (.comments|length)}'; fi ;;
+            comment)
+              [ -n "$PR" ] && [ -n "$BODY" ] || { echo "need pr and body"; exit 1; }
+              printf '%s' "$BODY" | gh pr comment "$PR" -R "$REPO" --body-file - ;;
+            reopen) gh pr reopen "$PR" -R "$REPO" ;;
+            close) gh pr close "$PR" -R "$REPO" ;;
+            *) echo "unknown action $ACTION"; exit 1 ;;
+          esac
