@@ -1,7 +1,7 @@
 import unittest
 import numpy as np
 from tinygrad import Tensor, GlobalCounters, dtypes, nn, Device, Variable
-from tinygrad.helpers import Context, getenv
+from tinygrad.helpers import Context, getenv, DEV
 from tinygrad.engine.realize import run_linear, estimate_uop, compile_linear
 from test.helpers import needs_second_gpu, check_schedule, assert_kernel_count, KernelCountException
 
@@ -32,9 +32,11 @@ class TestArange(unittest.TestCase):
     self.assertEqual(t.cat(t).tolist(), [3, 4, 3, 4])
 
   def test_eye_complexity(self):
+    # the emulator runs one lane at a time, a 1280 eye goes past the 180s test timeout under load
+    n = 256 if DEV.interface.startswith("MOCK") else 1280
     with Context(NOOPT=1):
       # NOTE: not every backend supports CMPEQ
-      self.assertLessEqual(self._get_flops(Tensor.eye(1280).clone(), np.eye(1280)), 2*1280*1280)
+      self.assertLessEqual(self._get_flops(Tensor.eye(n).clone(), np.eye(n)), 2*n*n)
 
 DSET, DDIM = 2048, 32
 
