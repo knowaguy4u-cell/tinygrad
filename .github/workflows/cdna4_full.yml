@@ -33,3 +33,9 @@ jobs:
           path: |
             report.xml
             out.txt
+      - name: summary
+        if: always()
+        shell: bash
+        run: |
+          msg=$(grep -E "^(FAILED|ERROR) |[0-9]+ (passed|failed)|worker .* crashed" out.txt | cut -c1-300 | tail -n 40 | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')
+          echo "::error title=results::$msg"
