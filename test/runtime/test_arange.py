@@ -157,7 +157,7 @@ class TestIndexing(unittest.TestCase):
   @Context(USE_ATOMICS=1, SPEC=1)
   def test_llama_8b_embedding_backward(self):
     from tinygrad.renderer.cstyle import CStyleLanguage
-    if Device.DEFAULT == "CPU" and not isinstance(Device["CPU"].renderer, CStyleLanguage): self.skipTest("CPU needs Clang renderer")
+    if not isinstance(Device[Device.DEFAULT].renderer, CStyleLanguage): self.skipTest("atomics are a C-style CUSTOM, LLVM renderers need Clang/HIP")
     vocab_size, embed_size = 1000, 128
     bs, seqlen = 4, 256
     idx = Tensor.randint(bs, seqlen, high=vocab_size)
@@ -181,7 +181,7 @@ class TestIndexing(unittest.TestCase):
   @Context(USE_ATOMICS=1, SPEC=1)
   def test_embedding_backward_padded_embed(self):
     from tinygrad.renderer.cstyle import CStyleLanguage
-    if Device.DEFAULT == "CPU" and not isinstance(Device["CPU"].renderer, CStyleLanguage): self.skipTest("CPU needs Clang renderer")
+    if not isinstance(Device[Device.DEFAULT].renderer, CStyleLanguage): self.skipTest("atomics are a C-style CUSTOM, LLVM renderers need Clang/HIP")
     vocab_size, embed_size = 1000, 300
     bs, seqlen = 4, 256
     idx = Tensor.randint(bs, seqlen, high=vocab_size)
@@ -202,7 +202,7 @@ class TestIndexing(unittest.TestCase):
   @Context(USE_ATOMICS=1, SPEC=1)
   def test_embedding_backward_vocab_sharded(self):
     from tinygrad.renderer.cstyle import CStyleLanguage
-    if Device.DEFAULT == "CPU" and not isinstance(Device["CPU"].renderer, CStyleLanguage): self.skipTest("CPU needs Clang renderer")
+    if not isinstance(Device[Device.DEFAULT].renderer, CStyleLanguage): self.skipTest("atomics are a C-style CUSTOM, LLVM renderers need Clang/HIP")
     devices = (f"{Device.DEFAULT}:0", f"{Device.DEFAULT}:1")
     vocab_size, embed_size = 1000, 128
     bs, seqlen = 4, 256
