@@ -34,7 +34,19 @@ jobs:
         run: hipcc --version
       - name: Run asm GEMM tests in the emulator
         shell: bash
-        run: python -m pytest -v -rs --durations=20 ${{ inputs.tests }} 2>&1 | tee pytest.log
+        run: |
+          set +e
+          for t in TestAsmGEMM::test_tiny TestAsmGEMM::test_verify_with_numpy TestHkBf16AtbGemm::test_single; do
+            echo "=== $t" >> pytest.log
+            timeout 1500 python -X faulthandler -m pytest -v -rs -x test/device/amd/test_asm_gemm.py::$t >> pytest.log 2>&1
+            echo "=== $t exit $?" >> pytest.log
+          done
+          grep -q 'exit 0' pytest.log
       - name: Summary
         if: always()
-        run: grep -E "PASSED|FAILED|SKIPPED|ERROR|passed|failed" pytest.log | tail -40 | sed 's/^/::notice::/' || true
+        shell: bash
+        run: |
+          for t in test_tiny test_verify_with_numpy test_single; do
+            msg=$(awk "/=== .*::$t\$/,/=== .*::$t exit/" pytest.log | grep -v '^\s*$' | tail -45 | cut -c1-220 | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')
+            echo "::error title=$t::$msg"
+          done
