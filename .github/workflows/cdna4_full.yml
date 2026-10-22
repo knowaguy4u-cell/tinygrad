@@ -25,7 +25,7 @@ jobs:
           llvm: 'true'
       - name: full suite
         continue-on-error: true
-        run: python -m pytest -n=auto test/runtime test/device/amd -q -rfEs -p no:cacheprovider --junitxml=report.xml 2>&1 | tee out.txt; exit ${PIPESTATUS[0]}
+        run: python -m pytest -n=auto test/runtime test/device/amd test/amd/hw/test_cdna_ds.py -q -rfEs -p no:cacheprovider --junitxml=report.xml 2>&1 | tee out.txt; exit ${PIPESTATUS[0]}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
