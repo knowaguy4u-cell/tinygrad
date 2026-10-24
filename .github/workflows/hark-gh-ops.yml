@@ -1,0 +1,84 @@
+name: Hark GH ops
+# Lets Hark make approved GitHub API calls as knowaguy4u-cell (advisory reports,
+# comments, issues, PRs) on any repo. Payloads and results are AES-256 encrypted,
+# so nothing confidential appears in this public repo or its logs.
+# Secrets: UPSTREAM_PAT (classic token) and HARK_OPS_KEY (passphrase).
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "check | api"
+        required: true
+        default: check
+      method:
+        description: "HTTP method for api (GET, POST, PATCH, PUT, DELETE)"
+        required: false
+        default: GET
+      endpoint:
+        description: "API path, e.g. repos/OWNER/REPO/security-advisories/reports"
+        required: false
+        default: ""
+      payload:
+        description: "Encrypted JSON body path under .hark-ops/ (optional)"
+        required: false
+        default: ""
+      request_id:
+        description: "Correlation id"
+        required: false
+        default: "0"
+permissions:
+  contents: write
+jobs:
+  act:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ secrets.UPSTREAM_PAT }}
+      KEY: ${{ secrets.HARK_OPS_KEY }}
+      ACTION: ${{ inputs.action }}
+      METHOD: ${{ inputs.method }}
+      ENDPOINT: ${{ inputs.endpoint }}
+      PAYLOAD: ${{ inputs.payload }}
+      RID: ${{ inputs.request_id }}
+      GHT: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .hark-ops
+          persist-credentials: false
+      - name: Run
+        run: |
+          set -uo pipefail
+          [ -n "$GH_TOKEN" ] || { echo "::error title=hark-ops::UPSTREAM_PAT secret missing"; exit 1; }
+          [ -n "$KEY" ] || { echo "::error title=hark-ops::HARK_OPS_KEY secret missing"; exit 1; }
+          [[ "$RID" =~ ^[A-Za-z0-9-]{1,40}$ ]] || { echo "::error title=hark-ops::bad request_id"; exit 1; }
+          enc() { openssl enc -aes-256-cbc -md sha256 -pbkdf2 -iter 200000 -salt -a -A -pass env:KEY; }
+          dec() { openssl enc -d -aes-256-cbc -md sha256 -pbkdf2 -iter 200000 -a -A -pass env:KEY; }
+          echo "::notice title=hark-ops-login::$(gh api user --jq .login)"
+          case "$ACTION" in
+            check)
+              scopes=$(gh api -i user 2>/dev/null | grep -i '^x-oauth-scopes' | tr -d '\r' || true)
+              echo "::notice title=hark-ops-scopes::${scopes:-fine-grained}"
+              exit 0 ;;
+            api) ;;
+            *) echo "::error title=hark-ops::unknown action"; exit 1 ;;
+          esac
+          [ -n "$ENDPOINT" ] || { echo "::error title=hark-ops::endpoint required"; exit 1; }
+          args=(-X "$METHOD" -H "Accept: application/vnd.github+json" -i)
+          if [ -n "$PAYLOAD" ]; then
+            case "$PAYLOAD" in .hark-ops/*) ;; *) echo "::error title=hark-ops::bad payload path"; exit 1;; esac
+            dec < "$PAYLOAD" > /tmp/body.json || { echo "::error title=hark-ops::decrypt failed"; exit 1; }
+            args+=(--input /tmp/body.json)
+          fi
+          gh api "${args[@]}" "$ENDPOINT" > /tmp/out.txt 2>/tmp/err.txt; rc=$?
+          status=$(head -1 /tmp/out.txt | awk '{print $2}')
+          echo "::notice title=hark-ops-status::rid=$RID rc=$rc http=${status:-none}"
+          cat /tmp/out.txt /tmp/err.txt | enc > /tmp/res.b64
+          # store encrypted result on branch hark-ops-results as results/<rid>.b64
+          cd "$RUNNER_TEMP" && rm -rf r && mkdir r && cd r && git init -q
+          git config user.name hark-ops; git config user.email hark-ops@users.noreply.github.com
+          url="https://x-access-token:${GHT}@github.com/${GITHUB_REPOSITORY}.git"
+          if git fetch -q --depth 1 "$url" hark-ops-results 2>/dev/null; then git checkout -q FETCH_HEAD -b hark-ops-results; else git checkout -q --orphan hark-ops-results; fi
+          mkdir -p results && cp /tmp/res.b64 "results/$RID.b64" && git add results && git commit -qm "result $RID" && git push -q "$url" HEAD:hark-ops-results
+          echo "::notice title=hark-ops-result::results/$RID.b64 on hark-ops-results"
+          rm -f /tmp/body.json /tmp/out.txt /tmp/err.txt /tmp/res.b64
+          exit 0
