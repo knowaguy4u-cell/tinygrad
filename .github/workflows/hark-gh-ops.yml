@@ -46,6 +46,7 @@ jobs:
           sparse-checkout: .hark-ops
           persist-credentials: false
       - name: Run
+        shell: bash --noprofile --norc {0}
         run: |
           set -uo pipefail
           [ -n "$GH_TOKEN" ] || { echo "::error title=hark-ops::UPSTREAM_PAT secret missing"; exit 1; }
@@ -69,16 +70,22 @@ jobs:
             dec < "$PAYLOAD" > /tmp/body.json || { echo "::error title=hark-ops::decrypt failed"; exit 1; }
             args+=(--input /tmp/body.json)
           fi
-          gh api "${args[@]}" "$ENDPOINT" > /tmp/out.txt 2>/tmp/err.txt; rc=$?
+          rc=0; gh api "${args[@]}" "$ENDPOINT" > /tmp/out.txt 2>/tmp/err.txt || rc=$?
           status=$(head -1 /tmp/out.txt | awk '{print $2}')
           echo "::notice title=hark-ops-status::rid=$RID rc=$rc http=${status:-none}"
           cat /tmp/out.txt /tmp/err.txt | enc > /tmp/res.b64
-          # store encrypted result on branch hark-ops-results as results/<rid>.b64
-          cd "$RUNNER_TEMP" && rm -rf r && mkdir r && cd r && git init -q
-          git config user.name hark-ops; git config user.email hark-ops@users.noreply.github.com
+          # store encrypted result on branch hark-ops-results as results/<rid>.b64 (retries if another run pushed first)
           url="https://x-access-token:${GHT}@github.com/${GITHUB_REPOSITORY}.git"
-          if git fetch -q --depth 1 "$url" hark-ops-results 2>/dev/null; then git checkout -q FETCH_HEAD -b hark-ops-results; else git checkout -q --orphan hark-ops-results; fi
-          mkdir -p results && cp /tmp/res.b64 "results/$RID.b64" && git add results && git commit -qm "result $RID" && git push -q "$url" HEAD:hark-ops-results
+          saved=0
+          for attempt in 1 2 3 4 5; do
+            cd "$RUNNER_TEMP" && rm -rf r && mkdir r && cd r && git init -q
+            git config user.name hark-ops; git config user.email hark-ops@users.noreply.github.com
+            if git fetch -q --depth 1 "$url" hark-ops-results 2>/dev/null; then git checkout -q FETCH_HEAD -b hark-ops-results; else git checkout -q --orphan hark-ops-results; fi
+            mkdir -p results && cp /tmp/res.b64 "results/$RID.b64" && git add results && git commit -qm "result $RID"
+            if git push -q "$url" HEAD:hark-ops-results; then saved=1; break; fi
+            sleep $((attempt * 2))
+          done
+          [ "$saved" = 1 ] || { echo "::error title=hark-ops::result push failed after retries"; exit 1; }
           echo "::notice title=hark-ops-result::results/$RID.b64 on hark-ops-results"
           rm -f /tmp/body.json /tmp/out.txt /tmp/err.txt /tmp/res.b64
           exit 0
